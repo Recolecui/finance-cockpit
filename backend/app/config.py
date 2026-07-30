@@ -3,7 +3,7 @@ import os
 
 class Settings:
     # 数据库
-    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/finance_cockpit")
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/finance_cockpit")
 
     # 企业微信 OAuth
     WECOM_CORP_ID = os.getenv("WECOM_CORP_ID", "")

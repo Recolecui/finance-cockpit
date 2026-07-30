@@ -20,7 +20,7 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-postgres}@db:5432/finance_cockpit
+      DATABASE_URL: postgresql+psycopg://postgres:${DB_PASSWORD:-postgres}@db:5432/finance_cockpit
       K3_BASE_URL: ${K3_BASE_URL}
       K3_ACCT_ID: ${K3_ACCT_ID}
       K3_USERNAME: ${K3_USERNAME}
