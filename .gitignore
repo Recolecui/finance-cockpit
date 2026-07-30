@@ -1,0 +1,7 @@
+# .gitignore
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.env
+pgdata/

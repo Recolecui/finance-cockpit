@@ -1,0 +1,10 @@
+# 德航智能经营驾驶舱 — 后端依赖
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+sqlalchemy==2.0.32
+psycopg2-binary==2.9.9
+alembic==1.13.2
+httpx==0.27.0
+PyJWT==2.9.0
+apscheduler==3.10.4
+python-dateutil==2.9.0
