@@ -134,7 +134,7 @@ def sync_outstock(db: Session, client: KingdeeClient, start_date: str, end_date:
         inserted = 0
         for r in rows:
             bill_no = str(r[0] or "").strip()
-            mat_code = str(r[6] or "").strip()
+            mat_code = str(r[7] or "").strip()
             if not bill_no or not mat_code:
                 continue
             # 产品分类：优先物料主数据，否则按编码前缀
@@ -156,6 +156,14 @@ def sync_outstock(db: Session, client: KingdeeClient, start_date: str, end_date:
             # 跳过售后维修领料单
             if "售后" in bill_type or "维修" in bill_type:
                 continue
+            # 审核日期
+            ap = r[20]
+            approve_dt = None
+            if isinstance(ap, str):
+                try:
+                    approve_dt = dt.strptime(ap[:19], "%Y-%m-%dT%H:%M:%S")
+                except:
+                    approve_dt = None
             stmt = pg_insert(SalesOutstock).values(
                 bill_no=bill_no,
                 bill_date=d,
@@ -166,18 +174,19 @@ def sync_outstock(db: Session, client: KingdeeClient, start_date: str, end_date:
                 material_name=str(r[6] or "").strip(),
                 material_number=mat_code,
                 product_category=pcat,
-                spec=str(r[9] or "").strip(),
-                qty=float(r[10] or 0),
-                amount=float(r[11] or 0),
-                tax_amount=float(r[12] or 0),
-                total_amount=float(r[13] or 0),
-                unit_price=float(r[14] or 0),
-                sales_org=str(r[15] or "").strip(),
-                sales_dept=str(r[16] or "").strip(),
-                salesman=str(r[17] or "").strip(),
-                warehouse=str(r[18] or "").strip(),
-                note=str(r[19] or "").strip(),
-                entry_note=str(r[20] or "").strip(),
+                spec=str(r[8] or "").strip(),
+                qty=float(r[9] or 0),
+                amount=float(r[10] or 0),
+                tax_amount=float(r[11] or 0),
+                total_amount=float(r[12] or 0),
+                unit_price=float(r[13] or 0),
+                sales_org=str(r[14] or "").strip(),
+                sales_dept=str(r[15] or "").strip(),
+                salesman=str(r[16] or "").strip(),
+                warehouse=str(r[17] or "").strip(),
+                note=str(r[18] or "").strip(),
+                entry_note=str(r[19] or "").strip(),
+                approve_date=approve_dt,
                 province=prov,
                 is_overseas=is_overseas,
             )
@@ -187,6 +196,7 @@ def sync_outstock(db: Session, client: KingdeeClient, start_date: str, end_date:
                     qty=stmt.excluded.qty, amount=stmt.excluded.amount,
                     total_amount=stmt.excluded.total_amount, product_category=stmt.excluded.product_category,
                     province=stmt.excluded.province, salesman=stmt.excluded.salesman,
+                    approve_date=stmt.excluded.approve_date,
                 ),
             )
             db.execute(stmt)
@@ -232,10 +242,10 @@ def sync_receive(db: Session, client: KingdeeClient, start_date: str, end_date: 
             stmt = pg_insert(ReceiveBill).values(
                 bill_no=bill_no, bill_date=d, bill_type=str(r[2] or "").strip(),
                 customer_name=str(r[3] or "").strip(), customer_number=str(r[4] or "").strip(),
-                receive_amount=float(r[5] or 0), currency=str(r[7] or "").strip(),
-                settle_type=str(r[8] or "").strip(),
-                sales_dept=str(r[9] or "").strip(), salesman=str(r[10] or "").strip(),
-                remark=str(r[11] or "").strip(),
+                receive_amount=float(r[5] or 0), currency=str(r[6] or "").strip(),
+                settle_type=str(r[7] or "").strip(),
+                sales_dept=str(r[8] or "").strip(), salesman=str(r[9] or "").strip(),
+                remark=str(r[10] or "").strip(),
             )
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_receive_bill_no",
@@ -281,13 +291,21 @@ def sync_receivable(db: Session, client: KingdeeClient, start_date: str, end_dat
                     continue
             elif isinstance(d, dt):
                 d = d.date()
+            try:
+                amt = float(r[5] or 0)
+            except:
+                amt = 0.0
+            try:
+                recv = float(r[6] or 0)
+            except:
+                recv = 0.0
             stmt = pg_insert(Receivable).values(
                 bill_no=bill_no, bill_date=d, bill_type=str(r[2] or "").strip(),
                 customer_name=str(r[3] or "").strip(), customer_number=str(r[4] or "").strip(),
-                amount=float(r[5] or 0), received_amount=float(r[6] or 0),
-                balance_amount=float(r[7] or 0),
-                sales_dept=str(r[8] or "").strip(), salesman=str(r[9] or "").strip(),
-                remark=str(r[10] or "").strip(),
+                amount=amt, received_amount=recv,
+                balance_amount=round(amt - recv, 2),
+                sales_dept=str(r[7] or "").strip(), salesman=str(r[8] or "").strip(),
+                remark=str(r[9] or "").strip(),
             )
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_receivable_bill_no",

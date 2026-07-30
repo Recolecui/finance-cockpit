@@ -131,8 +131,7 @@ class KingdeeClient:
     OUTSTOCK_FIELDS = [
         "FBillNo", "FDate", "FBillTypeID.FName", "FDocumentStatus",
         "FCustomerID.FName", "FCustomerID.FNumber",
-        "FMaterialID.FName", "FMaterialID.FNumber", "FMaterialGroup.FNumber",
-        "FSpecification",
+        "FMaterialID.FName", "FMaterialID.FNumber", "FMaterialID.FSpecification",
         "FRealQty", "FAmount", "FTaxAmount", "FAllAmount", "FTaxPrice",
         "FSaleOrgId.FName", "FSaleDeptID.FName", "FSalesmanID.FName",
         "FStockID.FName",
@@ -148,11 +147,11 @@ class KingdeeClient:
     # ============ 收款单 AR_RECEIVEBILL ============
     RECEIVE_FIELDS = [
         "FBillNo", "FDate", "FBillTypeID.FName",
-        "FCustomerID.FName", "FCustomerID.FNumber",
-        "FReceiveAmount", "FReceiveAmountFor",
+        "FCONTACTUNIT.FName", "FCONTACTUNIT.FNumber",
+        "FRECTOTALAMOUNTFOR",
         "FCurrencyID.FName", "FSettleTypeID.FName",
-        "FSaleDeptID.FName", "FSalesmanID.FName",
-        "FNote",
+        "FSaleDeptID.FName", "FSALEERID.FName",
+        "FREMARK",
     ]
 
     def fetch_receive(self, start_date: str, end_date: str):
@@ -164,9 +163,9 @@ class KingdeeClient:
     RECEIVABLE_FIELDS = [
         "FBillNo", "FDate", "FBillTypeID.FName",
         "FCustomerID.FName", "FCustomerID.FNumber",
-        "FAmountFor", "FReceivedAmountFor", "FBalanceAmountFor",
-        "FSaleDeptID.FName", "FSalesmanID.FName",
-        "FNote",
+        "FALLAMOUNTFOR", "FReceiveAmount",
+        "FSaleDeptID.FName", "FSALEERID.FName",
+        "FREMARK",
     ]
 
     def fetch_receivable(self, start_date: str, end_date: str):
