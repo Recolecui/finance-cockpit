@@ -63,6 +63,7 @@ class ReceiveBill(Base):
 
     customer_name = Column(String(256), nullable=False, index=True)
     customer_number = Column(String(64))
+    province = Column(String(32), index=True)                          # 省份（同步时按客户地图填充）
 
     receive_amount = Column(Float, default=0)                          # 收款金额（本位币）
     receive_qty = Column(Float, default=0)                              # 收款数量
@@ -91,6 +92,7 @@ class Receivable(Base):
 
     customer_name = Column(String(256), nullable=False, index=True)
     customer_number = Column(String(64))
+    province = Column(String(32), index=True)                          # 省份（同步时按客户地图填充）
 
     amount = Column(Float, default=0)                                   # 应收金额
     received_amount = Column(Float, default=0)                          # 已收金额

@@ -244,7 +244,8 @@ def sync_outstock(db: Session, client: KingdeeClient, start_date: str, end_date:
         raise
 
 
-def sync_receive(db: Session, client: KingdeeClient, start_date: str, end_date: str) -> dict:
+def sync_receive(db: Session, client: KingdeeClient, start_date: str, end_date: str,
+                 cust_prov_map: dict = None) -> dict:
     """同步收款单（回款）"""
     log = SyncLog(sync_type="receive", start_date=start_date, end_date=end_date, status="running")
     db.add(log)
@@ -267,17 +268,26 @@ def sync_receive(db: Session, client: KingdeeClient, start_date: str, end_date: 
                     continue
             elif isinstance(d, dt):
                 d = d.date()
+            cust_num = str(r[4] or "").strip()
+            cust_name = str(r[3] or "").strip()
+            cm = cust_prov_map.get(cust_num) if cust_prov_map else None
+            if cm and cm[0] != "未知":
+                prov = cm[0]
+            else:
+                prov = infer_province(cust_name)[0]
             stmt = pg_insert(ReceiveBill).values(
                 bill_no=bill_no, bill_date=d, bill_type=str(r[2] or "").strip(),
-                customer_name=str(r[3] or "").strip(), customer_number=str(r[4] or "").strip(),
+                customer_name=cust_name, customer_number=cust_num,
                 receive_amount=float(r[5] or 0), currency=str(r[6] or "").strip(),
                 settle_type=str(r[7] or "").strip(),
                 sales_dept=str(r[8] or "").strip(), salesman=str(r[9] or "").strip(),
                 remark=str(r[10] or "").strip(),
+                province=prov,
             )
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_receive_bill_no",
-                set_=dict(receive_amount=stmt.excluded.receive_amount, customer_name=stmt.excluded.customer_name),
+                set_=dict(receive_amount=stmt.excluded.receive_amount, customer_name=stmt.excluded.customer_name,
+                          province=stmt.excluded.province),
             )
             db.execute(stmt)
             inserted += 1
@@ -296,7 +306,8 @@ def sync_receive(db: Session, client: KingdeeClient, start_date: str, end_date: 
         raise
 
 
-def sync_receivable(db: Session, client: KingdeeClient, start_date: str, end_date: str) -> dict:
+def sync_receivable(db: Session, client: KingdeeClient, start_date: str, end_date: str,
+                    cust_prov_map: dict = None) -> dict:
     """同步应收单"""
     log = SyncLog(sync_type="receivable", start_date=start_date, end_date=end_date, status="running")
     db.add(log)
@@ -327,18 +338,26 @@ def sync_receivable(db: Session, client: KingdeeClient, start_date: str, end_dat
                 recv = float(r[6] or 0)
             except:
                 recv = 0.0
+            cust_num = str(r[4] or "").strip()
+            cust_name = str(r[3] or "").strip()
+            cm = cust_prov_map.get(cust_num) if cust_prov_map else None
+            if cm and cm[0] != "未知":
+                prov = cm[0]
+            else:
+                prov = infer_province(cust_name)[0]
             stmt = pg_insert(Receivable).values(
                 bill_no=bill_no, bill_date=d, bill_type=str(r[2] or "").strip(),
-                customer_name=str(r[3] or "").strip(), customer_number=str(r[4] or "").strip(),
+                customer_name=cust_name, customer_number=cust_num,
                 amount=amt, received_amount=recv,
                 balance_amount=round(amt - recv, 2),
                 sales_dept=str(r[7] or "").strip(), salesman=str(r[8] or "").strip(),
                 remark=str(r[9] or "").strip(),
+                province=prov,
             )
             stmt = stmt.on_conflict_do_update(
                 constraint="uq_receivable_bill_no",
                 set_=dict(amount=stmt.excluded.amount, received_amount=stmt.excluded.received_amount,
-                          balance_amount=stmt.excluded.balance_amount),
+                          balance_amount=stmt.excluded.balance_amount, province=stmt.excluded.province),
             )
             db.execute(stmt)
             inserted += 1
@@ -387,7 +406,7 @@ def run_full_sync(start_date: str = "2021-01-01", end_date: str = None):
     # 3. 回款
     print("  [3/4] 收款单（回款）...")
     try:
-        results["receive"] = sync_receive(db, client, start_date, end_date)
+        results["receive"] = sync_receive(db, client, start_date, end_date, cust_prov_map)
         print(f"    → {results['receive']}")
     except Exception as e:
         print(f"    ✗ 回款同步失败: {e}")
@@ -396,7 +415,7 @@ def run_full_sync(start_date: str = "2021-01-01", end_date: str = None):
     # 4. 应收
     print("  [4/4] 应收单...")
     try:
-        results["receivable"] = sync_receivable(db, client, start_date, end_date)
+        results["receivable"] = sync_receivable(db, client, start_date, end_date, cust_prov_map)
         print(f"    → {results['receivable']}")
     except Exception as e:
         print(f"    ✗ 应收同步失败: {e}")

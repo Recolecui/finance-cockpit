@@ -126,19 +126,19 @@ def get_region(
     elif metric == "receive":
         from app.models import ReceiveBill
         rows = db.query(
-            SalesOutstock.province,
+            ReceiveBill.province,
             func.sum(ReceiveBill.receive_amount),
-        ).join(ReceiveBill, ReceiveBill.customer_name == SalesOutstock.customer_name).filter(
+        ).filter(
             ReceiveBill.bill_date >= start,
             ReceiveBill.bill_date < end,
-        ).group_by(SalesOutstock.province).all()
+        ).group_by(ReceiveBill.province).all()
     else:  # receivable
         rows = db.query(
-            SalesOutstock.province,
+            Receivable.province,
             func.sum(Receivable.balance_amount),
-        ).join(Receivable, Receivable.customer_name == SalesOutstock.customer_name).filter(
+        ).filter(
             Receivable.bill_date < end,
-        ).group_by(SalesOutstock.province).all()
+        ).group_by(Receivable.province).all()
 
     return {
         "metric": metric,
