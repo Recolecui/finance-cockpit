@@ -183,6 +183,15 @@ class KingdeeClient:
         """拉取全部物料主数据"""
         return self.query_all("BD_MATERIAL", self.MATERIAL_FIELDS, "FNumber <> ''", "FNumber ASC")
 
+    # ============ 客户基础资料 BD_Customer（省份解析） ============
+    CUSTOMER_FIELDS = [
+        "FNumber", "FName", "FAddress",
+    ]
+
+    def fetch_customers(self):
+        """拉取全部客户基础资料（含详细地址，用于省份解析）"""
+        return self.query_all("BD_Customer", self.CUSTOMER_FIELDS, "FNumber <> ''", "FNumber ASC")
+
     # ============ 销售订单 SAL_SaleOrder（地域字段） ============
     SALEORDER_FIELDS = [
         "FBillNo", "FDate", "FBillTypeID.FName",

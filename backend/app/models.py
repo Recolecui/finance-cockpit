@@ -35,8 +35,8 @@ class SalesOutstock(Base):
     salesman = Column(String(64), index=True)                          # 业务员
     warehouse = Column(String(128))                                    # 仓库
 
-    region = Column(String(64), index=True)                             # 地域（从销售订单 FRegionID 关联）
-    province = Column(String(32), index=True)                          # 省份（从地域或客户名推断）
+    region = Column(String(64), index=True)                             # 地域（预留，目前由 province 填充）
+    province = Column(String(32), index=True)                          # 省份（优先按客户地址 FAddress 解析，回退客户名关键词）
     is_overseas = Column(Integer, default=0)                            # 是否海外
 
     note = Column(Text)                                                 # 备注

@@ -118,7 +118,30 @@ def sync_materials(db: Session, client: KingdeeClient) -> dict:
         raise
 
 
-def sync_outstock(db: Session, client: KingdeeClient, start_date: str, end_date: str) -> dict:
+def build_customer_province_map(client: KingdeeClient) -> dict:
+    """拉取客户基础资料(BD_Customer)，按 FAddress 解析省份。
+
+    返回 {客户编码: (省份, 是否海外)}。金蝶的 FProvince 在本公司实际为空，
+    唯一可靠来源是 FAddress 里的省/市文本，复用 infer_province 关键词匹配。
+    """
+    m: dict = {}
+    try:
+        rows = client.fetch_customers()
+    except Exception as e:
+        print(f"    [客户省份] 拉取失败，将仅用客户名推断: {e}")
+        return m
+    for r in rows:
+        num = str(r[0] or "").strip()
+        addr = str(r[2] or "").strip() if len(r) > 2 else ""
+        if not num or not addr:
+            continue
+        prov, overseas = infer_province(addr)
+        m[num] = (prov, overseas)
+    return m
+
+
+def sync_outstock(db: Session, client: KingdeeClient, start_date: str, end_date: str,
+                  cust_prov_map: dict = None) -> dict:
     """同步销售出库单"""
     log = SyncLog(sync_type="outstock", start_date=start_date, end_date=end_date, status="running")
     db.add(log)
@@ -139,9 +162,14 @@ def sync_outstock(db: Session, client: KingdeeClient, start_date: str, end_date:
                 continue
             # 产品分类：优先物料主数据，否则按编码前缀
             pcat = mat_map.get(mat_code) or classify_product(mat_code)
-            # 省份推断
+            # 省份推断：优先用客户基础资料地址解析，回退到客户名关键词
             cust = str(r[4] or "").strip()
-            prov, is_overseas = infer_province(cust)
+            cust_num = str(r[5] or "").strip()
+            cm = cust_prov_map.get(cust_num) if cust_prov_map else None
+            if cm and cm[0] != "未知":
+                prov, is_overseas = cm
+            else:
+                prov, is_overseas = infer_province(cust)
             # 日期解析
             from datetime import datetime as dt
             d = r[1]
@@ -346,9 +374,14 @@ def run_full_sync(start_date: str = "2021-01-01", end_date: str = None):
     results["material"] = sync_materials(db, client)
     print(f"    → {results['material']}")
 
+    # 1.5 客户省份映射（按 BD_Customer.FAddress 解析）
+    print("  [客户省份] 拉取客户基础资料解析省份...")
+    cust_prov_map = build_customer_province_map(client)
+    print(f"    → 已建立 {len(cust_prov_map)} 条客户→省份映射")
+
     # 2. 销售出库
     print("  [2/4] 销售出库单...")
-    results["outstock"] = sync_outstock(db, client, start_date, end_date)
+    results["outstock"] = sync_outstock(db, client, start_date, end_date, cust_prov_map)
     print(f"    → {results['outstock']}")
 
     # 3. 回款

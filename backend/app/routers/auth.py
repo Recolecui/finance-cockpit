@@ -1,14 +1,20 @@
-"""企业微信 OAuth + JWT 鉴权"""
+"""企业微信 OAuth + 账号密码登录 + JWT 鉴权"""
 import requests
 import time
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+class PasswordLoginReq(BaseModel):
+    username: str
+    password: str
 
 WECOM_ACCESS_TOKEN_URL = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
 WECOM_USER_INFO_URL = "https://qyapi.weixin.qq.com/cgi-bin/auth/getuserinfo"
@@ -111,3 +117,15 @@ def callback(code: str, db: Session = Depends(get_db)):
 def verify(current_user: dict = Depends(get_current_user)):
     """验证当前 token 是否有效"""
     return {"user_id": current_user["sub"], "name": current_user["name"]}
+
+
+@router.post("/login/password")
+def login_password(body: PasswordLoginReq):
+    """账号密码登录（内部驾驶舱，无需企业微信）
+
+    凭据来自环境变量 ADMIN_USERNAME / ADMIN_PASSWORD（默认 admin / admin123）。
+    """
+    if body.username == settings.ADMIN_USERNAME and body.password == settings.ADMIN_PASSWORD:
+        token = create_jwt(body.username, body.username)
+        return {"token": token, "name": body.username}
+    raise HTTPException(401, "用户名或密码错误")

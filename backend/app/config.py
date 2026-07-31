@@ -16,6 +16,10 @@ class Settings:
     JWT_ALGORITHM = "HS256"
     JWT_EXPIRE_HOURS = 72
 
+    # 账号密码登录（内部驾驶舱，无需企业微信）
+    ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+
     # 金蝶
     K3_BASE_URL = os.getenv("K3_BASE_URL", "https://geshem.ik3cloud.com")
     K3_ACCT_ID = os.getenv("K3_ACCT_ID", "1783990801475402752")
