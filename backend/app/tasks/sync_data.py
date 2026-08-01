@@ -119,10 +119,11 @@ def sync_materials(db: Session, client: KingdeeClient) -> dict:
 
 
 def build_customer_province_map(client: KingdeeClient) -> dict:
-    """拉取客户基础资料(BD_Customer)，按 FAddress 解析省份。
+    """拉取客户基础资料(BD_Customer)，按 (客户名 → 地址) 优先级解析省份。
 
     返回 {客户编码: (省份, 是否海外)}。金蝶的 FProvince 在本公司实际为空，
-    唯一可靠来源是 FAddress 里的省/市文本，复用 infer_province 关键词匹配。
+    只能用 FName / FAddress 文本关键词匹配。规则：客户名能解析出省份则优先用
+    客户名（如「河北三宇」→河北），否则回退地址；纯英文名视为海外。
     """
     m: dict = {}
     try:
@@ -132,11 +133,19 @@ def build_customer_province_map(client: KingdeeClient) -> dict:
         return m
     for r in rows:
         num = str(r[0] or "").strip()
+        name = str(r[1] or "").strip()
         addr = str(r[2] or "").strip() if len(r) > 2 else ""
-        if not num or not addr:
+        if not num:
             continue
-        prov, overseas = infer_province(addr)
-        m[num] = (prov, overseas)
+        # 客户名优先
+        prov, overseas = infer_province(name)
+        if prov != "未知":
+            m[num] = (prov, overseas)
+            continue
+        # 客户名无省份 → 回退地址
+        if addr:
+            prov, overseas = infer_province(addr)
+            m[num] = (prov, overseas)
     return m
 
 
@@ -162,14 +171,17 @@ def sync_outstock(db: Session, client: KingdeeClient, start_date: str, end_date:
                 continue
             # 产品分类：优先物料主数据，否则按编码前缀
             pcat = mat_map.get(mat_code) or classify_product(mat_code)
-            # 省份推断：优先用客户基础资料地址解析，回退到客户名关键词
+            # 省份推断：客户名优先（如「河北三宇」→河北），地址映射兜底
             cust = str(r[4] or "").strip()
             cust_num = str(r[5] or "").strip()
             cm = cust_prov_map.get(cust_num) if cust_prov_map else None
-            if cm and cm[0] != "未知":
+            prov_name, ov_name = infer_province(cust)
+            if prov_name != "未知":
+                prov, is_overseas = prov_name, ov_name
+            elif cm and cm[0] != "未知":
                 prov, is_overseas = cm
             else:
-                prov, is_overseas = infer_province(cust)
+                prov, is_overseas = "未知", False
             # 日期解析
             from datetime import datetime as dt
             d = r[1]
@@ -271,10 +283,13 @@ def sync_receive(db: Session, client: KingdeeClient, start_date: str, end_date: 
             cust_num = str(r[4] or "").strip()
             cust_name = str(r[3] or "").strip()
             cm = cust_prov_map.get(cust_num) if cust_prov_map else None
-            if cm and cm[0] != "未知":
+            prov_name = infer_province(cust_name)[0]
+            if prov_name != "未知":
+                prov = prov_name
+            elif cm and cm[0] != "未知":
                 prov = cm[0]
             else:
-                prov = infer_province(cust_name)[0]
+                prov = "未知"
             stmt = pg_insert(ReceiveBill).values(
                 bill_no=bill_no, bill_date=d, bill_type=str(r[2] or "").strip(),
                 customer_name=cust_name, customer_number=cust_num,
@@ -341,10 +356,13 @@ def sync_receivable(db: Session, client: KingdeeClient, start_date: str, end_dat
             cust_num = str(r[4] or "").strip()
             cust_name = str(r[3] or "").strip()
             cm = cust_prov_map.get(cust_num) if cust_prov_map else None
-            if cm and cm[0] != "未知":
+            prov_name = infer_province(cust_name)[0]
+            if prov_name != "未知":
+                prov = prov_name
+            elif cm and cm[0] != "未知":
                 prov = cm[0]
             else:
-                prov = infer_province(cust_name)[0]
+                prov = "未知"
             stmt = pg_insert(Receivable).values(
                 bill_no=bill_no, bill_date=d, bill_type=str(r[2] or "").strip(),
                 customer_name=cust_name, customer_number=cust_num,

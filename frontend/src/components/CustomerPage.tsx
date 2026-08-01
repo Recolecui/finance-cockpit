@@ -1,14 +1,20 @@
 'use client';
 
 import { useAPI, fmtMoney } from '@/lib/api';
-import type { CustomerData, SalesmanData } from '@/types';
+import type { CustomerData, SalesmanData, Period } from '@/types';
 import ReactECharts from 'echarts-for-react';
 import { useMemo, useState } from 'react';
 
-export default function CustomerPage() {
-  const year = new Date().getFullYear();
-  const { data } = useAPI<CustomerData>(`/dashboard/customers/top?limit=15&year=${year}`);
-  const { data: salesmen } = useAPI<SalesmanData>(`/dashboard/salesman?year=${year}`);
+export default function CustomerPage({ period, trendMode }: { period: Period; trendMode: 'single' | 'multi' }) {
+  const now = new Date();
+  const year = period.year;
+  const isCurrent = year === now.getFullYear();
+  const isMulti = trendMode === 'multi';
+  const ym = `year=${year}`;
+  const cm = `mode=${trendMode}`;
+  const periodLabel = isMulti ? `${year - 2}年-至今(近三年)` : (isCurrent ? `${year}年(1-${now.getMonth() + 1}月)` : `${year}年`);
+  const { data } = useAPI<CustomerData>(`/dashboard/customers/top?limit=20&${isMulti ? cm : ym}`);
+  const { data: salesmen } = useAPI<SalesmanData>(`/dashboard/salesman?${ym}`);
   const [showSalesman, setShowSalesman] = useState(false);
 
   const paretoOption = useMemo(() => {
@@ -35,31 +41,33 @@ export default function CustomerPage() {
     };
   }, [data]);
 
-  const top15Pct = data?.customers[data.customers.length - 1]?.cum_pct || 0;
+  const top20Count = data?.top_customers ?? 0;
+  const totalCustomers = data?.total_customers ?? 0;
+  const countRatio = totalCustomers > 0 ? (top20Count / totalCustomers) * 100 : 0;
 
   return (
     <section className="min-h-screen p-6 max-w-7xl mx-auto bg-bg">
       <h2 className="text-lg font-bold mb-4">客户分析</h2>
 
-      {/* TOP15 集中度 */}
+      {/* TOP20 集中度 */}
       <div className="bg-white rounded-xl border border-line p-4 mb-4">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-medium text-sub">TOP15 客户集中度 · {year}年</h3>
-          <span className={`text-sm font-bold ${top15Pct > 60 ? 'text-down' : 'text-up'}`}>
-            TOP15 占比 {top15Pct.toFixed(1)}%
-          </span>
+          <h3 className="text-sm font-medium text-sub">TOP20 客户集中度 · {periodLabel}</h3>
+          <div className="text-sm text-sub">
+            共 <b className="text-txt">{totalCustomers}</b> 家客户，TOP20 占客户数量 <b className="text-txt">{countRatio.toFixed(1)}%</b>
+          </div>
         </div>
         <ReactECharts option={paretoOption} style={{ height: '360px' }} />
       </div>
 
       {/* 客户列表 */}
       <div className="bg-white rounded-xl border border-line p-4 mb-4">
-        <h3 className="text-sm font-medium text-sub mb-2">客户排行 TOP15</h3>
-        <table className="w-full text-sm">
+        <h3 className="text-sm font-medium text-sub mb-2">客户排行 TOP20 · {periodLabel}</h3>
+          <table className="w-full text-sm">
           <thead><tr className="text-sub border-b border-line">
             <th className="text-left py-2">#</th><th className="text-left">客户</th>
             <th className="text-left">省份</th><th className="text-right">金额</th>
-            <th className="text-right">占比</th><th className="text-right">累计</th>
+            <th className="text-right">应收(万元)</th><th className="text-right">占比</th><th className="text-right">累计</th>
           </tr></thead>
           <tbody>
             {data?.customers.map((c, i) => (
@@ -68,6 +76,7 @@ export default function CustomerPage() {
                 <td className="truncate max-w-[200px]" title={c.name}>{c.name}</td>
                 <td className="text-sub">{c.province}</td>
                 <td className="text-right font-medium">{fmtMoney(c.amount)}</td>
+                <td className="text-right text-down font-medium">{fmtMoney(c.receivable)}</td>
                 <td className="text-right">{c.pct}%</td>
                 <td className="text-right text-sub">{c.cum_pct}%</td>
               </tr>

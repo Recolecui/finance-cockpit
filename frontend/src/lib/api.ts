@@ -28,3 +28,14 @@ export function fmtMoney(v: number | null | undefined): string {
 export function fmtNum(v: number | null | undefined): string {
   return v == null ? '-' : Math.round(v).toLocaleString();
 }
+
+/** 产品系列标准配色（与后端 CAT_TO_SERIES 对应） */
+export const SERIES_COLORS: Record<string, string> = {
+  PPC: '#15803d', TPC: '#3b82f6', PDA: '#f59e0b', PC: '#8b5cf6',
+  IPC: '#ef4444', PDS: '#06b6d4', '配件': '#94a3b8', '外购品': '#a855f7',
+};
+
+export function fmtWan(v: number | null | undefined, digits = 1): string {
+  if (v == null) return '-';
+  return `${(v / 10000).toFixed(digits)}万`;
+}

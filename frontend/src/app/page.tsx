@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import Dashboard from '@/components/Dashboard';
 import CustomerPage from '@/components/CustomerPage';
 import ProductPage from '@/components/ProductPage';
+import { useAPI } from '@/lib/api';
+import type { Period, YearsData } from '@/types';
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
@@ -12,6 +14,13 @@ export default function Home() {
   const [p, setP] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // 全局时间维度：按年统计（下拉选择年份）+ 趋势图三年窗口切换
+  const now = new Date();
+  const [year, setYear] = useState<number>(now.getFullYear());
+  const [trendMode, setTrendMode] = useState<'single' | 'multi'>('single');
+  const { data: yearsData } = useAPI<YearsData>('/dashboard/years');
+  const years = yearsData?.years?.length ? yearsData.years : [now.getFullYear()];
 
   useEffect(() => {
     const t = localStorage.getItem('token');
@@ -86,7 +95,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
+      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b">
         <div className="max-w-7xl mx-auto px-6 h-12 flex items-center justify-between">
           <span className="font-semibold text-slate-700">德航智能 · 经营驾驶舱</span>
           <div className="flex items-center gap-4 text-sm text-slate-500">
@@ -95,10 +104,35 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      {/* 全局时间维度切换 */}
+      <div className="sticky top-12 z-10 bg-slate-50/90 backdrop-blur border-b border-line">
+        <div className="max-w-7xl mx-auto px-6 h-12 flex items-center justify-between">
+          <span className="text-sm text-slate-500">数据周期</span>
+          <div className="flex items-center gap-2 bg-white rounded-lg p-0.5 border border-line">
+            <button
+              onClick={() => setTrendMode(m => m === 'single' ? 'multi' : 'single')}
+              className={`px-3 py-1.5 text-sm rounded-md transition ${trendMode === 'multi' ? 'bg-brand text-white shadow-sm' : 'text-sub hover:text-txt'}`}
+            >
+              按年统计
+            </button>
+            <select
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="px-2 py-1.5 text-sm rounded-md border-0 bg-transparent focus:outline-none cursor-pointer text-txt"
+            >
+              {years.map((y) => (
+                <option key={y} value={y}>{y}年</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
       <main className="max-w-7xl mx-auto px-6 py-6 space-y-10">
-        <Dashboard />
-        <CustomerPage />
-        <ProductPage />
+        <Dashboard period={{ year }} trendMode={trendMode} />
+        <CustomerPage period={{ year }} trendMode={trendMode} />
+        <ProductPage period={{ year }} />
       </main>
     </div>
   );
