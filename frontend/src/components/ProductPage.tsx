@@ -39,30 +39,36 @@ export default function ProductPage({ period }: { period: Period }) {
           return Math.round(it ? it.amount : 0);
         }),
         itemStyle: { color: SERIES_COLORS[cat] || '#94a3b8' },
+        label: { show: true, position: 'top', formatter: (p: any) => fmtMoney(p.value), fontSize: 9, color: '#475569' },
       })),
     };
   }, [productYears]);
 
-  // 增长/下降分析
+  // 增长/下降分析（纵坐标固定顺序：从下到上 PPC→TPC→PDA→PC→IPC→PDS→配件→外购品）
   const growthOption = useMemo(() => {
     if (!growth) return {};
-    const items = growth.items.filter(i => i.diff !== 0).sort((a, b) => b.diff - a.diff);
+    const SERIES_ORDER = ["PPC", "TPC", "PDA", "PC", "IPC", "PDS", "配件", "外购品"];
+    const byCat: Record<string, any> = {};
+    growth.items.forEach(i => { byCat[i.category] = i; });
+    const data = SERIES_ORDER.map(cat => {
+      const i = byCat[cat];
+      const diff = i ? i.diff : 0;
+      return {
+        value: Math.round(diff),
+        itemStyle: { color: diff >= 0 ? '#16a34a' : '#ef4444', borderRadius: diff >= 0 ? [0, 4, 4, 0] : [4, 0, 0, 4] },
+        label: { show: true, position: diff >= 0 ? 'right' : 'left', formatter: (params: any) => fmtMoney(params.value), fontSize: 10, color: '#475569' },
+      };
+    });
     return {
       grid: { left: 100, right: 30, top: 20, bottom: 30 },
       tooltip: { formatter: (p: any) => {
-        const i = items[p.dataIndex];
+        const i = byCat[SERIES_ORDER[p.dataIndex]];
+        if (!i) return `${SERIES_ORDER[p.dataIndex]}<br>变动: ¥0`;
         return `${i.category}<br>变动: ${fmtMoney(i.diff)}<br>今年: ${fmtMoney(i.current)}<br>去年: ${fmtMoney(i.previous)}`;
       }},
       xAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtMoney(v), fontSize: 10 } },
-      yAxis: { type: 'category', data: items.map(i => i.category), axisLabel: { fontSize: 11 } },
-      series: [{
-        type: 'bar', data: items.map(i => ({
-          value: Math.round(i.diff),
-          itemStyle: { color: i.diff >= 0 ? '#16a34a' : '#ef4444', borderRadius: i.diff >= 0 ? [0,4,4,0] : [4,0,0,4] },
-          label: { show: true, position: i.diff >= 0 ? 'right' : 'left', formatter: (params: any) => fmtMoney(params.value), fontSize: 10, color: '#475569' },
-        })),
-        barMaxWidth: 18,
-      }],
+      yAxis: { type: 'category', data: SERIES_ORDER, axisLabel: { fontSize: 11 } },
+      series: [{ type: 'bar', data, barMaxWidth: 18 }],
     };
   }, [growth]);
 

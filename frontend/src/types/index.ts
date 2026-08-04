@@ -6,6 +6,7 @@ export interface Period {
 export interface KPI {
   period: string;
   sales: number;
+  order: number;
   receive: number;
   receivable: number;
   outstock_count: number;
@@ -20,6 +21,7 @@ export interface TrendItem {
   receive: number;
   receivable: number;
   sales_top5: TopCustomer[];
+  order_top5: TopCustomer[];
   receive_top5: TopCustomer[];
   receivable_top5: TopCustomer[];
 }
@@ -32,11 +34,12 @@ export interface RegionItem { province: string; value: number; }
 export interface RegionData { metric: string; regions: RegionItem[]; }
 
 export interface RegionTopCustomer { name: string; amount: number; }
-export interface RegionDetailItem { province: string; value: number; top5: RegionTopCustomer[]; }
+export interface RegionDetailItem { province: string; value: number; qty?: number; top5: RegionTopCustomer[]; }
 export interface RegionDetailData {
   metric: string;
   provinces: RegionDetailItem[];
   overseas_unknown: number;
+  total_sales_amount: number;
 }
 
 export interface ProductItem {

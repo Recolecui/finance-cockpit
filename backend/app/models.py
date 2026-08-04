@@ -110,6 +110,42 @@ class Receivable(Base):
     )
 
 
+class SaleOrder(Base):
+    """销售订单（金蝶 SAL_SaleOrder）— 订单额数据源"""
+    __tablename__ = "sale_order"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    bill_no = Column(String(64), nullable=False, index=True)          # 单据编号
+    bill_date = Column(Date, nullable=False, index=True)               # 日期
+    bill_type = Column(String(64))                                     # 单据类型（标准销售订单等）
+    doc_status = Column(String(16))                                    # 单据状态（C=已审核）
+
+    customer_name = Column(String(256), nullable=False, index=True)    # 客户名称
+    customer_number = Column(String(64))                                # 客户编码
+
+    material_name = Column(String(256), nullable=False, index=True)    # 物料名称
+    material_number = Column(String(64), nullable=False, index=True)   # 物料编码
+    product_category = Column(String(64), index=True)                  # 产品大类
+    spec = Column(String(256))                                         # 规格型号
+
+    qty = Column(Float, default=0)                                       # 订单数量
+    amount = Column(Float, default=0)                                   # 金额（本位币，不含税）
+    total_amount = Column(Float, default=0)                             # 价税合计（含税）
+
+    sales_dept = Column(String(128), index=True)                       # 销售部门
+    salesman = Column(String(64), index=True)                          # 业务员
+
+    province = Column(String(32), index=True)                          # 省份
+    is_overseas = Column(Integer, default=0)                            # 是否海外
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("bill_no", "material_number", name="uq_saleorder_bill_material"),
+        Index("ix_saleorder_date_type", "bill_date", "bill_type"),
+    )
+
+
 class Material(Base):
     """物料主数据（金蝶 BD_MATERIAL）"""
     __tablename__ = "material"

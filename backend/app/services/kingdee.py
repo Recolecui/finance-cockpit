@@ -192,17 +192,18 @@ class KingdeeClient:
         """拉取全部客户基础资料（含详细地址，用于省份解析）"""
         return self.query_all("BD_Customer", self.CUSTOMER_FIELDS, "FNumber <> ''", "FNumber ASC")
 
-    # ============ 销售订单 SAL_SaleOrder（地域字段） ============
+    # ============ 销售订单 SAL_SaleOrder ============
+    # 实测修正：客户字段是 FCustId（FCustomerID 不存在）；FRegionID 在销售订单上不存在。
+    # 金额：FAmount=不含税金额(本位币)，FAllAmount=价税合计(含税)；FQty=订单数量。
     SALEORDER_FIELDS = [
         "FBillNo", "FDate", "FBillTypeID.FName",
-        "FCustomerID.FName", "FCustomerID.FNumber",
+        "FCustId.FName", "FCustId.FNumber",
         "FMaterialID.FName", "FMaterialID.FNumber",
         "FQty", "FAmount", "FAllAmount",
-        "FSaleDeptID.FName", "FSalesmanID.FName",
-        "FRegionID.FName", "FRegionID.FNumber",
+        "FSaleDeptID.FName", "FSalerID.FName",
     ]
 
     def fetch_saleorders(self, start_date: str, end_date: str):
-        """拉取销售订单（含地域字段 FRegionID）"""
+        """拉取销售订单（客户字段 FCustId，订单额取 FAmount 不含税、数量取 FQty）"""
         filter_str = f"FDate>='{start_date}' AND FDate<'{end_date}' AND FDocumentStatus='C'"
         return self.query_all("SAL_SaleOrder", self.SALEORDER_FIELDS, filter_str, "FDate ASC")

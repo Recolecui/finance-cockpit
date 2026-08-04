@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.database import SessionLocal, engine, Base
-from app.models import SalesOutstock, ReceiveBill, Receivable, Material, SyncLog
+from app.models import SalesOutstock, ReceiveBill, Receivable, Material, SaleOrder, SyncLog
 from app.services.kingdee import KingdeeClient, classify_product, normalize_code
 
 # 省份推断关键词（复用 region-sales-app 的逻辑）
@@ -394,8 +394,101 @@ def sync_receivable(db: Session, client: KingdeeClient, start_date: str, end_dat
         raise
 
 
+def sync_saleorder(db: Session, client: KingdeeClient, start_date: str, end_date: str,
+                    cust_prov_map: dict = None) -> dict:
+    """同步销售订单（订单额来源）。客户字段 FCustId，金额 FAmount(不含税)，数量 FQty。"""
+    log = SyncLog(sync_type="saleorder", start_date=start_date, end_date=end_date, status="running")
+    db.add(log)
+    db.commit()
+    t0 = time.time()
+    try:
+        rows = client.fetch_saleorders(start_date, end_date)
+        log.rows_fetched = len(rows)
+        # 预加载物料分类映射
+        mat_map = {}
+        for m in db.query(Material.material_number, Material.product_category).all():
+            mat_map[m.material_number] = m.product_category
+        inserted = 0
+        for r in rows:
+            bill_no = str(r[0] or "").strip()
+            mat_code = str(r[6] or "").strip()
+            if not bill_no or not mat_code:
+                continue
+            pcat = mat_map.get(mat_code) or classify_product(mat_code)
+            cust = str(r[3] or "").strip()
+            cust_num = str(r[4] or "").strip()
+            cm = cust_prov_map.get(cust_num) if cust_prov_map else None
+            prov_name, ov_name = infer_province(cust)
+            if prov_name != "未知":
+                prov, is_overseas = prov_name, ov_name
+            elif cm and cm[0] != "未知":
+                prov, is_overseas = cm
+            else:
+                prov, is_overseas = "未知", False
+            from datetime import datetime as dt
+            d = r[1]
+            if isinstance(d, str):
+                try:
+                    d = dt.strptime(d[:10], "%Y-%m-%d").date()
+                except:
+                    continue
+            elif isinstance(d, dt):
+                d = d.date()
+            bill_type = str(r[2] or "").strip()
+            # 跳过售后维修类订单
+            if "售后" in bill_type or "维修" in bill_type:
+                continue
+            try:
+                qty = float(r[7] or 0)
+            except:
+                qty = 0.0
+            try:
+                amount = float(r[8] or 0)
+            except:
+                amount = 0.0
+            try:
+                total = float(r[9] or 0)
+            except:
+                total = 0.0
+            stmt = pg_insert(SaleOrder).values(
+                bill_no=bill_no, bill_date=d, bill_type=bill_type,
+                doc_status="C",
+                customer_name=cust, customer_number=cust_num,
+                material_name=str(r[5] or "").strip(),
+                material_number=mat_code,
+                product_category=pcat,
+                qty=qty, amount=amount, total_amount=total,
+                sales_dept=str(r[10] or "").strip(),
+                salesman=str(r[11] or "").strip(),
+                province=prov, is_overseas=is_overseas,
+            )
+            stmt = stmt.on_conflict_do_update(
+                constraint="uq_saleorder_bill_material",
+                set_=dict(
+                    qty=stmt.excluded.qty, amount=stmt.excluded.amount,
+                    total_amount=stmt.excluded.total_amount, product_category=stmt.excluded.product_category,
+                    province=stmt.excluded.province, salesman=stmt.excluded.salesman,
+                ),
+            )
+            db.execute(stmt)
+            inserted += 1
+        db.commit()
+        log.rows_inserted = inserted
+        log.status = "success"
+        log.duration_sec = round(time.time() - t0, 1)
+        db.commit()
+        return {"fetched": len(rows), "inserted": inserted}
+    except Exception as e:
+        db.rollback()
+        log.status = "failed"
+        log.error_msg = str(e)
+        log.duration_sec = round(time.time() - t0, 1)
+        db.commit()
+        raise
+
+
 def run_full_sync(start_date: str = "2021-01-01", end_date: str = None):
-    """执行全量同步：物料 → 出库 → 回款 → 应收"""
+    """执行全量同步：物料 → 出库 → 回款 → 应收 → 销售订单"""
     if not end_date:
         from dateutil.relativedelta import relativedelta
         end_date = (date.today().replace(day=1) + relativedelta(months=1)).isoformat()
@@ -431,13 +524,22 @@ def run_full_sync(start_date: str = "2021-01-01", end_date: str = None):
         results["receive"] = {"error": str(e)}
 
     # 4. 应收
-    print("  [4/4] 应收单...")
+    print("  [4/5] 应收单...")
     try:
         results["receivable"] = sync_receivable(db, client, start_date, end_date, cust_prov_map)
         print(f"    → {results['receivable']}")
     except Exception as e:
         print(f"    ✗ 应收同步失败: {e}")
         results["receivable"] = {"error": str(e)}
+
+    # 5. 销售订单（订单额）
+    print("  [5/5] 销售订单（订单额）...")
+    try:
+        results["saleorder"] = sync_saleorder(db, client, start_date, end_date, cust_prov_map)
+        print(f"    → {results['saleorder']}")
+    except Exception as e:
+        print(f"    ✗ 销售订单同步失败: {e}")
+        results["saleorder"] = {"error": str(e)}
 
     db.close()
     print("[同步完成]")

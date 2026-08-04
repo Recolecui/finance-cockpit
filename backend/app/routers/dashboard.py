@@ -9,21 +9,21 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import SalesOutstock, ReceiveBill, Receivable
+from app.models import SalesOutstock, ReceiveBill, Receivable, SaleOrder
 from app.routers.auth import get_current_user
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 # ── 产品大类 -> 经营驾驶舱标准系列码（金蝶物料组归并）─────────────────
 # 用户定义的成品系列：PPC/TPC/PDA/PC/IPC/PDS；外购品独立；其余归「配件」。
-#   工控机三类（无风扇/上架/壁挂）合并为 IPC
 #   工业显示器 -> PDS，加固便携设备 -> PDA
 #   工业平板电脑 -> PPC，手持强固平板 -> TPC
+#   工控机拆分：无风扇工控机 -> PC；上架/壁挂工控机 -> IPC
 CAT_TO_SERIES = {
-    # 工控机系列 -> IPC
-    "无风扇工控机": "IPC",
-    "上架工控机": "IPC",
+    # 工控机系列拆分
+    "无风扇工控机": "PC",
     "壁挂工控机": "IPC",
+    "上架工控机": "IPC",
     # 工业计算机 / 平板 / 显示器 / 便携 系列
     "工业平板电脑": "PPC",
     "手持强固平板": "TPC",
@@ -32,7 +32,7 @@ CAT_TO_SERIES = {
     # 外购品独立
     "外购品": "外购品",
 }
-# 成品系列展示顺序（PC 暂不使用，保留备用）
+# 成品系列展示顺序（增长贡献分析纵坐标：从下到上 PPC→TPC→PDA→PC→IPC→PDS→配件→外购品）
 SERIES_ORDER = ["PPC", "TPC", "PDA", "PC", "IPC", "PDS", "配件", "外购品"]
 
 
@@ -70,12 +70,14 @@ def _year_end_month(year: int) -> int:
 
 
 def _metric_source(metric: str):
-    """返回 (模型, 金额列, 客户列) 供地域分布使用。"""
+    """返回 (模型, 金额列, 客户列, 数量列) 供地域分布使用。数量列为 None 表示无数量维度。"""
     if metric == "receive":
-        return ReceiveBill, ReceiveBill.receive_amount, ReceiveBill.customer_name
+        return ReceiveBill, ReceiveBill.receive_amount, ReceiveBill.customer_name, None
     if metric == "receivable":
-        return Receivable, Receivable.balance_amount, Receivable.customer_name
-    return SalesOutstock, SalesOutstock.amount, SalesOutstock.customer_name
+        return Receivable, Receivable.balance_amount, Receivable.customer_name, None
+    if metric == "order":
+        return SaleOrder, SaleOrder.amount, SaleOrder.customer_name, SaleOrder.qty
+    return SalesOutstock, SalesOutstock.amount, SalesOutstock.customer_name, SalesOutstock.qty
 
 
 @router.get("/kpi")
@@ -93,6 +95,12 @@ def get_kpi(
         SalesOutstock.bill_date >= start,
         SalesOutstock.bill_date < end,
         SalesOutstock.bill_type.like("%标准%"),
+    ).scalar() or 0
+
+    # 订单额（销售订单，不含税 FAmount）
+    order_amount = db.query(func.sum(SaleOrder.amount)).filter(
+        SaleOrder.bill_date >= start,
+        SaleOrder.bill_date < end,
     ).scalar() or 0
 
     # 出库数
@@ -113,6 +121,7 @@ def get_kpi(
     return {
         "period": f"{start.strftime('%Y-%m')}",
         "sales": round(float(sales), 2),
+        "order": round(float(order_amount), 2),
         "receive": round(float(receive), 2),
         "receivable": round(float(receivable), 2),
         "outstock_count": int(outstock_count),
@@ -161,6 +170,12 @@ def get_trend(
         WHERE bill_date >= :start AND bill_date < :end
     """), {"start": start_d, "end": end_d}).fetchall()
 
+    order_rows = db.execute(text("""
+        SELECT to_char(bill_date, 'YYYY-MM') AS mo, customer_name, amount
+        FROM sale_order
+        WHERE bill_date >= :start AND bill_date < :end
+    """), {"start": start_d, "end": end_d}).fetchall()
+
     sales_sum: dict = defaultdict(float)
     sales_cust: dict = defaultdict(lambda: defaultdict(float))
     for mo, cust, amt in sales_rows:
@@ -174,6 +189,13 @@ def get_trend(
         recv_sum[mo] += float(amt or 0)
         if cust:
             recv_cust[mo][cust] += float(amt or 0)
+
+    order_sum: dict = defaultdict(float)
+    order_cust: dict = defaultdict(lambda: defaultdict(float))
+    for mo, cust, amt in order_rows:
+        order_sum[mo] += float(amt or 0)
+        if cust:
+            order_cust[mo][cust] += float(amt or 0)
 
     # 应收余额：按「月-客户」累计未收净额（应收生成 − 已收 的滚动累计），
     # 形成真实趋势曲线（每月不同，最终收敛到当前总余额 1.15 亿）。
@@ -214,10 +236,11 @@ def get_trend(
         months_data.append({
             "month": m,
             "sales": round(sales_sum.get(m, 0), 2),
-            "orders": 0,
+            "orders": round(order_sum.get(m, 0), 2),
             "receive": round(recv_sum.get(m, 0), 2),
             "receivable": round(prev, 2),
             "sales_top5": top5(sales_cust.get(m, {})),
+            "order_top5": top5(order_cust.get(m, {})),
             "receive_top5": top5(recv_cust.get(m, {})),
             "receivable_top5": ar_top5_at(m),
         })
@@ -241,14 +264,14 @@ def get_years(
 def get_region(
     year: Optional[int] = None,
     month: Optional[int] = None,
-    metric: str = Query("sales", regex="^(sales|receive|receivable)$"),
+    metric: str = Query("sales", regex="^(sales|receive|receivable|order)$"),
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
     """区域分布（按省份聚合）"""
     start, end = _period_range(year, month)
 
-    Model, val_col, _ = _metric_source(metric)
+    Model, val_col, _, _ = _metric_source(metric)
     q = db.query(Model.province, func.sum(val_col)).filter(
         Model.bill_date >= start, Model.bill_date < end)
     if metric == "sales":
@@ -266,7 +289,7 @@ def get_region_detail(
     year: Optional[int] = None,
     month: Optional[int] = None,
     mode: str = Query("single", regex="^(single|multi)$"),
-    metric: str = Query("sales", regex="^(sales|receive|receivable)$"),
+    metric: str = Query("sales", regex="^(sales|receive|receivable|order)$"),
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
@@ -276,14 +299,16 @@ def get_region_detail(
     - mode=multi（按年统计）：取 (year-2)年1月 ~ year年当前月，约三年窗口。
     - metric=receivable：始终显示当前最新应收余额，不按周期过滤。
 
-    返回 provinces: [{province, value, top5:[{name, amount}]}]
+    返回 provinces: [{province, value, qty, top5:[{name, amount}]}]
+    qty 仅对 sales(出货数量)/order(订单数量) 有意义，其余为 0。
     """
-    Model, val_col, cust_col = _metric_source(metric)
+    Model, val_col, cust_col, qty_col = _metric_source(metric)
 
     if metric == "receivable":
         # 应收：始终取当前最新余额，不按周期过滤
         val_rows = db.query(Model.province, func.sum(val_col)).group_by(Model.province).all()
         cust_rows = db.query(Model.province, cust_col, func.sum(val_col)).group_by(Model.province, cust_col).all()
+        qty_by_prov = {}
     else:
         if mode == "multi":
             end_month = _year_end_month(year or date.today().year)
@@ -293,6 +318,7 @@ def get_region_detail(
             start, end = _period_range(year, month)
 
         base_filter = [Model.bill_date >= start, Model.bill_date < end]
+        # 仅销售出库按「标准」过滤（订单已剔除售后/维修，不再二次过滤）
         if metric == "sales":
             base_filter.append(Model.bill_type.like("%标准%"))
 
@@ -300,6 +326,13 @@ def get_region_detail(
             *base_filter).group_by(Model.province).all()
         cust_rows = db.query(Model.province, cust_col, func.sum(val_col)).filter(
             *base_filter).group_by(Model.province, cust_col).all()
+
+        # 数量维度（出货数量 / 订单数量）
+        qty_by_prov = {}
+        if qty_col is not None:
+            qty_rows = db.query(Model.province, func.sum(qty_col)).filter(
+                *base_filter).group_by(Model.province).all()
+            qty_by_prov = {(r[0] or "未知"): float(r[1] or 0) for r in qty_rows}
 
     value_by_prov = {(r[0] or "未知"): float(r[1] or 0) for r in val_rows}
 
@@ -317,6 +350,7 @@ def get_region_detail(
         provinces.append({
             "province": p,
             "value": round(value_by_prov.get(p, 0), 2),
+            "qty": round(qty_by_prov.get(p, 0), 2),
             "top5": top5_by_prov.get(p, []),
         })
     provinces.sort(key=lambda x: x["value"], reverse=True)
@@ -324,7 +358,23 @@ def get_region_detail(
     # 海外 / 未知 汇总（地图无法展示，单独返回）
     overseas = round(sum(v for k, v in value_by_prov.items() if k in ("海外", "未知")), 2)
 
-    return {"metric": metric, "mode": mode, "provinces": provinces, "overseas_unknown": overseas}
+    # 统计期间总出货额（始终按销售额口径，独立于所选指标，供地域框展示）
+    if mode == "multi":
+        end_month = _year_end_month(year or date.today().year)
+        so_start = date((year or date.today().year) - 2, 1, 1)
+        so_end = date(year or date.today().year, end_month, 1) + relativedelta(months=1)
+    else:
+        so_start, so_end = _period_range(year, month)
+    total_sales_amount = db.query(func.sum(SalesOutstock.amount)).filter(
+        SalesOutstock.bill_date >= so_start, SalesOutstock.bill_date < so_end,
+        SalesOutstock.bill_type.like("%标准%"),
+    ).scalar() or 0
+
+    return {
+        "metric": metric, "mode": mode, "provinces": provinces,
+        "overseas_unknown": overseas,
+        "total_sales_amount": round(float(total_sales_amount), 2),
+    }
 
 
 def _product_structure_for_period(start: date, end: date, db: Session):
